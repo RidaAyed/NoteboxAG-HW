@@ -1,0 +1,13 @@
+language: python
+python: '3.7'
+dist: xenial
+sudo: required
+cache: pip
+install:
+- pip install -r requirements.txt
+script:
+- pytest --cov
+after_success:
+- coveralls
+before_install:
+- echo $file_password | gpg --passphrase-fd 0 private.pem.gpg

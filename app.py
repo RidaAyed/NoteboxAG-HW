@@ -93,7 +93,7 @@ def remove_lines_from_image(image):
     lines = cv2.HoughLinesP(dilation, 1, np.pi / 180, 115, minLineLength=500)
     # Make the lines white
     H, W = image.shape[:2]
-    print_console("[INFO] Removing each line")
+    print_console("[INFO] {} lines found".format(len(lines)))
     for line in lines:
         for x1, y1, x2, y2 in line:
             radians = math.atan2(y1-y2, 0-x2)
@@ -117,13 +117,11 @@ def process_the_image(image_extracted):
     Returns:
         imgs: all the cropped images
     """
-    print_console("[INFO] Pocessing the image")
+    print_console("[INFO] Processing the image")
     np_img = np.frombuffer(image_extracted, np.uint8)
     image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-    print_console("[INFO] Creating the gray image")
     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     image_delined = remove_lines_from_image(image_gray)
-    print_console("[INFO] Applying threshold")
     _, image_threshed_inv = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY_INV)
     image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
     imgs = create_each_line_image(image_threshed, uppers, lowers)
@@ -150,6 +148,7 @@ def create_each_line_image(image_threshed, uppers, lowers):
             imgs.append(_img)
             # Used for debug to see each cropped line
             # cv2.imwrite("crop/crop_{}.png".format(y), img_crop)
+    print_console("[INFO] There is {} sub-images".format(len(imgs)))
     return imgs
 
 def query_google_vision(imgs):
@@ -181,6 +180,10 @@ def query_google_vision(imgs):
         response = client.batch_annotate_images(requests)
         responses.append(response)
 
+    if len(responses) > 0:
+        print_console("[INFO] There is some responses")
+    else:
+        print_console("[ERROR] No response")
     return responses
 
 def process_the_responses(responses):
@@ -193,7 +196,7 @@ def process_the_responses(responses):
     Returns:
         data: the json data
     """
-    print_console("[INFO] Processing the Google Vision API response")
+    print_console("[INFO] Processing the Google Vision API responses")
     keywords = ['date','todo','time','attendees','comment','title']
     current = {}
     data = {}

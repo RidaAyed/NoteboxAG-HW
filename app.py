@@ -113,7 +113,7 @@ def process_the_image(image_extracted):
     image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     image_delined = remove_lines_from_image(image_gray)
-    _, image_threshed_inv = cv2.threshold(image_delined, 150, 255, cv2.THRESH_BINARY_INV)
+    _, image_threshed_inv = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY_INV)
     image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
     imgs = create_each_line_image(image_threshed, uppers, lowers)
     return imgs

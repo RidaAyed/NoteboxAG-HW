@@ -7,6 +7,8 @@ import click
 from google.cloud import vision_v1p3beta1 as vision
 from compare import run_test
 
+VERBOSE = False
+
 def chunks(l, n):
     """
     Divide an iterator into multiple chunks of n elements.
@@ -32,6 +34,9 @@ def extract_image_from_pdf(path):
     Returns:
         The JPG as string.
     """
+
+    print_console("[INFO] Extracting image from PDF")
+
     startmark = b"\xff\xd8"
     startfix = 0
     endmark = b"\xff\xd9"
@@ -78,14 +83,17 @@ def remove_lines_from_image(image):
     Returns:
         An 8-bit image
     """
+    print_console("[INFO] Removing the lines from the image")
     edges = cv2.Canny(image, 50, 150, apertureSize=3)
     kernel = np.ones((3,3),np.uint8)
     dilation = cv2.dilate(edges,kernel,iterations = 2)
 
     # Perform HoughLinesP tranform.
+    print_console("[INFO] Performing HoughLinesP")
     lines = cv2.HoughLinesP(dilation, 1, np.pi / 180, 115, minLineLength=500)
     # Make the lines white
     H, W = image.shape[:2]
+    print_console("[INFO] Removing each line")
     for line in lines:
         for x1, y1, x2, y2 in line:
             radians = math.atan2(y1-y2, 0-x2)
@@ -109,16 +117,20 @@ def process_the_image(image_extracted):
     Returns:
         imgs: all the cropped images
     """
+    print_console("[INFO] Pocessing the image")
     np_img = np.frombuffer(image_extracted, np.uint8)
     image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+    print_console("[INFO] Creating the gray image")
     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     image_delined = remove_lines_from_image(image_gray)
+    print_console("[INFO] Applying threshold")
     _, image_threshed_inv = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY_INV)
     image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
     imgs = create_each_line_image(image_threshed, uppers, lowers)
     return imgs
 
 def draw_boundaries(image_threshed_inv, image_delined):
+    print_console("[INFO] Finding each lines boundary")
     hist = cv2.reduce(image_threshed_inv,1, cv2.REDUCE_AVG).reshape(-1)
     th = 2
     H,W = image_delined.shape[:2]
@@ -129,6 +141,7 @@ def draw_boundaries(image_threshed_inv, image_delined):
     return image_threshed, uppers, lowers
 
 def create_each_line_image(image_threshed, uppers, lowers):
+    print_console("[INFO] Creating each sub-image")
     imgs = []
     for y in range(len(lowers)):
         if (lowers[y] - uppers[y]) > 30:
@@ -150,6 +163,7 @@ def query_google_vision(imgs):
     Returns:
         responses: list of response
     """
+    print_console("[INFO] Querying Google Vision API")
     client = vision.ImageAnnotatorClient()
     features = [vision.types.Feature(type=vision.enums.Feature.Type.DOCUMENT_TEXT_DETECTION)]
     responses = []
@@ -179,7 +193,7 @@ def process_the_responses(responses):
     Returns:
         data: the json data
     """
-
+    print_console("[INFO] Processing the Google Vision API response")
     keywords = ['date','todo','time','attendees','comment','title']
     current = {}
     data = {}
@@ -208,15 +222,25 @@ def process_the_responses(responses):
 
     return data
 
+def print_console(message):
+    if VERBOSE:
+        print(message)
+
 @click.command()
 @click.argument('input', type=click.Path(exists=True))
 @click.option('--output', type=click.Path(exists=True))
 @click.option('--testfile', type=click.Path(exists=True))
-def main(input, output, testfile):
+@click.option('-v', '--verbose', is_flag=True)
+def main(input, output, testfile, verbose):
+    # Trick to do things faster
+    global VERBOSE
+    VERBOSE = verbose
+
     image_extracted = extract_image_from_pdf(input)
     imgs = process_the_image(image_extracted)
 
     responses= query_google_vision(imgs)
+
 
     data = process_the_responses(responses)
 
@@ -228,9 +252,11 @@ def main(input, output, testfile):
     exporting_the_result(data, output)
 
     if (testfile):
+        print_console("[INFO] Running the tests")
         run_test(output, testfile)
 
 def exporting_the_result(data, filename):
+    print_console("[INFO] Exporting the result")
     with open(filename, 'w', encoding='utf8') as json_file:
         json.dump(data, json_file, ensure_ascii=False, indent=4)
 

@@ -22,16 +22,16 @@ pip install -r requirements.txt
 
 Finally, run:
 ```
-export "GOOGLE_APPLICATION_CREDENTIALS"="keys.json"
+export "GOOGLE_APPLICATION_CREDENTIALS"=keys.json
 ```
 
-Where "keys.json" is the path to your downloaded Google's credentials.
+Where "keys.json" is the path to your downloaded Google's credentials. You can make it permanent if you wish.
 
 ### Running the app
 
 Simply run:
 ```
-python app.py INPUTFILE [--output FILE] [--testfile FILE]
+python app.py INPUTFILE [--output FILE] [--testfile FILE] [-v | --verbose]
 ```
 
 The input file is mandatory and should be a PDF file containing the scanned handwritten image.

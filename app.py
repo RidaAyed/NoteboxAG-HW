@@ -122,33 +122,82 @@ def process_the_image(image_extracted):
     image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     image_delined = remove_lines_from_image(image_gray)
-    _, image_threshed_inv = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY_INV)
-    image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
-    imgs = create_each_line_image(image_threshed, uppers, lowers)
+    # OLD IMPLEMENTATION to detect lines
+    # _, image_threshed_inv = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY_INV)
+    # image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
+    # imgs = create_each_line_image(image_threshed, uppers, lowers)
+    # NEW IMPLEMENTATION using findContours method
+    # _, image_threshed = cv2.threshold(image_delined, 190, 255, cv2.THRESH_BINARY)
+    # _, image_threshed = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+    # _, image_threshed = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY)
+    blur = cv2.GaussianBlur(image_delined, (3, 3), 0)
+    ctrs = find_contours(image_delined)
+    imgs = create_each_line_image(ctrs, blur)
     return imgs
 
-def draw_boundaries(image_threshed_inv, image_delined):
+def find_contours(img):
+    """
+    Method to find the contours of each line
+
+    Args:
+        img: the image to use
+
+    Returns:
+        sorted_ctrs: list of contours sorted by the top
+    """
+    print_console("[INFO] Findinf the contours of each line")
+    _, delined_threshed = cv2.threshold(img, 147, 255, cv2.THRESH_BINARY_INV)
+    kernel = np.ones((5, 200), np.uint8)
+    dilation = cv2.dilate(delined_threshed, kernel, iterations=1)
+
+    _, ctrs, _ = cv2.findContours(dilation, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    sorted_ctrs = sorted(ctrs, key=lambda ctr: cv2.boundingRect(ctr)[1])
+    return sorted_ctrs
+
+def draw_boundaries(image_threshed_inv, img):
+    """
+    Method to find the lower and upper boundaries of each line
+
+    Args:
+        image_threshed_inv: a threshed inverted image
+        image_delined: the image to use
+
+    Returns:
+        image_threshed: a threshed image
+        uppers: list of all the uppers lines
+        lowers: list of all the lowers lines
+    """
     print_console("[INFO] Finding each lines boundary")
     hist = cv2.reduce(image_threshed_inv,1, cv2.REDUCE_AVG).reshape(-1)
-    th = 2
-    H,W = image_delined.shape[:2]
+    th = 1
+    H,W = img.shape[:2]
     uppers = [y for y in range(H-1) if hist[y]<=th and hist[y+1]>th]
     lowers = [y for y in range(H-1) if hist[y]>th and hist[y+1]<=th]
 
     image_threshed = cv2.bitwise_not(image_threshed_inv)
     return image_threshed, uppers, lowers
 
-def create_each_line_image(image_threshed, uppers, lowers):
+def create_each_line_image(sorted_ctrs, img):
+    """
+    Method to create each subimage containing only one line
+
+    Args:
+        sorted_ctrs: all the detected contours
+        img: the img to use to create the subimage
+
+    Returns:
+        imgs: list of subimages
+    """
     print_console("[INFO] Creating each sub-image")
     imgs = []
-    for y in range(len(lowers)):
-        if (lowers[y] - uppers[y]) > 30:
-            img_crop = image_threshed[uppers[y]-15:lowers[y]+15]
+    for i, ctr in enumerate(sorted_ctrs):
+        x,y,w,h = cv2.boundingRect(ctr)
+        # Setting a minimum
+        if h > 35 and w > 385:
+            img_crop = img[y:y+h, x:x+w]
             _img = cv2.imencode('.jpg', img_crop)[1].tostring()
+            cv2.imwrite('tests_assets/1_crop_{}.jpg'.format(y), img_crop)
             imgs.append(_img)
-            # Used for debug to see each cropped line
-            # cv2.imwrite("crop/crop_{}.png".format(y), img_crop)
-    print_console("[INFO] There is {} sub-images".format(len(imgs)))
     return imgs
 
 def query_google_vision(imgs):
@@ -221,6 +270,8 @@ def process_the_responses(responses):
                         data[key + str(current[key]) ] = text
                         current[key] += 1
             except:
+                # Should be a KeyError in case line[1] is empty
+                # That's good, if it's empty we don't want to process it
                 continue
 
     return data

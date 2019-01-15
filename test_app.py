@@ -1,9 +1,8 @@
-from app import chunks, extract_image_from_pdf, remove_lines_from_image, draw_boundaries, create_each_line_image
+from app import chunks, extract_image_from_pdf, remove_lines_from_image, draw_boundaries, create_each_line_image, find_contours
 import json
 import numpy as np
 import cv2
 import os
-# import base64
 from difflib import SequenceMatcher, ndiff
 from compare import inline_diff, compare_number_words, compare_number_lines, compare_json_keys, compare_line_by_line
 
@@ -14,8 +13,6 @@ from Crypto.Cipher import AES, PKCS1_OAEP
 def decrypt(filename):
   file_in = open(filename, 'rb')
 
-  # private_key = RSA.import_key( base64.b64decode(os.environ['NOTEBOX_PRIVATE_KEY']) )
-  # private_key = RSA.import_key( os.environ['NOTEBOX_PRIVATE_KEY'] )
   private_key = RSA.import_key( open('private.pem').read() )
   enc_session_key, nonce, tag, ciphertext = \
     [ file_in.read(x) for x in (private_key.size_in_bytes(), 16, 16, -1) ]
@@ -48,7 +45,7 @@ def test_removes_lines_from_image():
   image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   image_delined = remove_lines_from_image(image_gray)
   _, image_threshed_inv = cv2.threshold(image_delined, 150, 255, cv2.THRESH_BINARY_INV)
-  image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
+  image_threshed, _, _ = draw_boundaries(image_threshed_inv, image_delined)
 
   img = cv2.imencode('.jpg', image_threshed)[1].tostring()
 
@@ -56,19 +53,35 @@ def test_removes_lines_from_image():
 
   assert(img == image_correct)
 
+def test_find_contours():
+  image_extracted = decrypt('tests_assets/1.jpg.enc')
+  np_img = np.frombuffer(image_extracted, np.uint8)
+  image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+  image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+  image_delined = remove_lines_from_image(image_gray)
+  ctrs = find_contours(image_delined)
+  assert(len(ctrs) == 53)
+
 def test_create_each_line():
   image_extracted = decrypt('tests_assets/1.jpg.enc')
   np_img = np.frombuffer(image_extracted, np.uint8)
   image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
   image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   image_delined = remove_lines_from_image(image_gray)
-  _, image_threshed_inv = cv2.threshold(image_delined, 150, 255, cv2.THRESH_BINARY_INV)
-  image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
-
-  imgs = create_each_line_image(image_threshed, uppers, lowers)
+  ctrs = find_contours(image_delined)
+  imgs = create_each_line_image(ctrs, image_delined)
   correct_imgs = []
 
-  for x in range(len(imgs)):
+  numbers = []
+  for ctr in ctrs:
+    x,y,w,h = cv2.boundingRect(ctr)
+    if h > 35 and w > 385:
+      numbers.append(y)
+
+  print('numbers')
+  print(numbers)
+
+  for x in numbers:
     correct_imgs.append( decrypt('tests_assets/1_crop_{}.jpg.enc'.format(x)) )
 
   assert(imgs == correct_imgs)

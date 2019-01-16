@@ -1,3 +1,4 @@
+import re
 import os
 import json
 import numpy as np
@@ -8,6 +9,7 @@ from google.cloud import vision_v1p3beta1 as vision
 from compare import run_test
 
 VERBOSE = False
+KEYWORDS = ['date','todo','time','attendees','comment','title']
 
 def chunks(l, n):
     """
@@ -122,18 +124,39 @@ def process_the_image(image_extracted):
     image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     image_delined = remove_lines_from_image(image_gray)
-    # OLD IMPLEMENTATION to detect lines
-    # _, image_threshed_inv = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY_INV)
-    # image_threshed, uppers, lowers = draw_boundaries(image_threshed_inv, image_delined)
-    # imgs = create_each_line_image(image_threshed, uppers, lowers)
-    # NEW IMPLEMENTATION using findContours method
-    # _, image_threshed = cv2.threshold(image_delined, 190, 255, cv2.THRESH_BINARY)
-    # _, image_threshed = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-    # _, image_threshed = cv2.threshold(image_delined, 170, 255, cv2.THRESH_BINARY)
+
+    # Only blurring seems to hold the best results
     blur = cv2.GaussianBlur(image_delined, (3, 3), 0)
     ctrs = find_contours(image_delined)
     imgs = create_each_line_image(ctrs, blur)
     return imgs
+
+def query_for_digits(img):
+    """
+    Take an image content, apply various effects to be better parsed.
+    Then query Google Vision API for Document text OCR
+
+    Args:
+        img: the image content to send
+
+    Returns:
+        imgs: all the cropped images
+    """
+    # This is wat works the best for digits apparently ?
+    np_img = np.frombuffer(img, np.uint8)
+    img = cv2.imdecode(np_img, 0)
+    blur = cv2.GaussianBlur(img, (3, 3), 0)
+    _, image_threshed = cv2.threshold(blur, 200, 255, cv2.THRESH_BINARY)
+    # _, image_threshed = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+    _img = cv2.imencode('.jpg', image_threshed)[1].tostring()
+
+    client = vision.ImageAnnotatorClient()
+    image = vision.types.Image(content=_img)
+    # Adding Deutsch language fixes the digits recognition
+    image_context = vision.types.ImageContext(
+        language_hints=['de'])
+    response = client.document_text_detection(image=image, image_context=image_context)
+    return response.full_text_annotation.text.replace('\n', ' ')
 
 def find_contours(img):
     """
@@ -145,7 +168,7 @@ def find_contours(img):
     Returns:
         sorted_ctrs: list of contours sorted by the top
     """
-    print_console("[INFO] Findinf the contours of each line")
+    print_console("[INFO] Find the contours of each line")
     _, delined_threshed = cv2.threshold(img, 147, 255, cv2.THRESH_BINARY_INV)
     kernel = np.ones((5, 200), np.uint8)
     dilation = cv2.dilate(delined_threshed, kernel, iterations=1)
@@ -193,10 +216,9 @@ def create_each_line_image(sorted_ctrs, img):
     for i, ctr in enumerate(sorted_ctrs):
         x,y,w,h = cv2.boundingRect(ctr)
         # Setting a minimum
-        if h > 35 and w > 385:
+        if h > 30 and w > 385:
             img_crop = img[y:y+h, x:x+w]
             _img = cv2.imencode('.jpg', img_crop)[1].tostring()
-            cv2.imwrite('tests_assets/1_crop_{}.jpg'.format(y), img_crop)
             imgs.append(_img)
     return imgs
 
@@ -214,8 +236,8 @@ def query_google_vision(imgs):
     print_console("[INFO] Querying Google Vision API")
     client = vision.ImageAnnotatorClient()
     features = [vision.types.Feature(type=vision.enums.Feature.Type.DOCUMENT_TEXT_DETECTION)]
+    
     responses = []
-
     imgs_chunks = list(chunks(imgs, 16))
     for chunk in imgs_chunks:
         requests = []
@@ -235,44 +257,69 @@ def query_google_vision(imgs):
         print_console("[ERROR] No response")
     return responses
 
-def process_the_responses(responses):
+def extract_key_and_text(line, img):
+    """
+    Process all the Google Cloud Vision responses
+
+    Args:
+        line: array of words
+        img: the associated img used for digits
+
+    Returns:
+        key: the extracted keyword
+        text: the extracted text
+    """
+    # Using this in case the keyword and the text is not accurately splitted
+    groups = re.search(r'(date|todo|time|attendees|comment|title)(.*)', line)
+    if groups:
+        groups = groups.groups()
+        # If there a matches, the key should always be the first match
+        key = groups[0]
+
+        # If it's a time or date line, we want to reprocess it for special digits car
+        if key == 'time' or key == 'date':
+            line = query_for_digits(img)
+            # We redo this
+            groups = re.search(r'(date|todo|time|attendees|comment|title)(.*)', line, re.IGNORECASE)
+            if groups:
+                groups = groups.groups()
+                key = groups[0]
+
+        if len(groups) > 1:
+            text = groups[1].strip()
+        elif len(groups) == 1:
+            text = ""
+        return key, text
+    else:
+        return None, None
+
+def process_the_responses(responses, imgs):
     """
     Process all the Google Cloud Vision responses
 
     Args:
         responses: list of response
+        imgs: list of subimages used to retry or better parse digits
 
     Returns:
         data: the json data
     """
     print_console("[INFO] Processing the Google Vision API responses")
-    keywords = ['date','todo','time','attendees','comment','title']
     current = {}
     data = {}
-    for keyword in keywords:
+    for keyword in KEYWORDS:
         current[keyword] = 0
 
-    for response in responses:
-        for annotation_response in response.responses:
+    for n, response in enumerate(responses):
+        for i, annotation_response in enumerate(response.responses):
             text = annotation_response.full_text_annotation.text.replace('\n', ' ')
-            line = text.split()
-            # First or Second in case wrong first elements. All lines should start with a keyword
-            try:
-                if line[0].startswith(tuple(keywords)) or line[1].startswith(tuple(keywords)):
-                    # First element or second is starting with keyword
-                    if line[1].startswith(tuple(keywords)):
-                        del line[0]
-
-                    key = line[0]
-                    text = " ".join(line[1:])
-
-                    if key in keywords:
-                        data[key + str(current[key]) ] = text
-                        current[key] += 1
-            except:
-                # Should be a KeyError in case line[1] is empty
-                # That's good, if it's empty we don't want to process it
-                continue
+            
+            # Need to do this because we split the images by chunks of 16 to follow Google's limit
+            _im = imgs[i + n * 16]
+            key, text = extract_key_and_text(text, _im)
+            if key and text:
+                data[key + str(current[key]) ] = text
+                current[key] += 1
 
     return data
 
@@ -295,8 +342,7 @@ def main(input, output, testfile, verbose):
 
     responses= query_google_vision(imgs)
 
-
-    data = process_the_responses(responses)
+    data = process_the_responses(responses, imgs)
 
     if not output:
         output = 'out/{}.json'.format( os.path.splitext( os.path.split(input)[1] )[0] )

@@ -1,4 +1,4 @@
-from app import chunks, extract_image_from_pdf, remove_lines_from_image, draw_boundaries, create_each_line_image, find_contours
+from app import chunks, extract_image_from_pdf, remove_lines_from_image, draw_boundaries, create_each_line_image, find_contours, extract_key_and_text
 import json
 import numpy as np
 import cv2
@@ -85,6 +85,24 @@ def test_create_each_line():
     correct_imgs.append( decrypt('tests_assets/1_crop_{}.jpg.enc'.format(x)) )
 
   assert(imgs == correct_imgs)
+
+def test_splitted_extract_key_and_text():
+  line = 'comment testing'
+  key, text = extract_key_and_text(line, '')
+  assert(key == 'comment')
+  assert(text == 'testing')
+
+def test_not_splitted_extract_key_and_text():
+  line = 'commenttesting again'
+  key, text = extract_key_and_text(line, '')
+  assert(key == 'comment')
+  assert(text == 'testing again')
+
+def test_bad_extract_key_and_text():
+  line = 'testing again'
+  key, text = extract_key_and_text(line, '')
+  assert(key == None)
+  assert(text == None)
 
 def test_inline_diff_change():
   line_a = 'line a'

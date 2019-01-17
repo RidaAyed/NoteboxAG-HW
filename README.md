@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/Nahria/NoteboxAG-HW.svg?branch=master)](https://travis-ci.com/Nahria/NoteboxAG-HW) [![Coverage Status](https://coveralls.io/repos/github/Nahria/NoteboxAG-HW/badge.svg?branch=master)](https://coveralls.io/github/Nahria/NoteboxAG-HW?branch=master)
+[![Build Status](https://travis-ci.com/RidaAyed/NoteboxAG-HW.svg?branch=master)](https://travis-ci.com/RidaAyed/NoteboxAG-HW) [![Coverage Status](https://coveralls.io/repos/github/RidaAyed/NoteboxAG-HW/badge.svg?branch=master)](https://coveralls.io/github/RidaAyed/NoteboxAG-HW?branch=master)
 
 # NOTEBOX-AG
 
